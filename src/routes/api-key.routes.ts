@@ -9,6 +9,7 @@ import {
     createDefaultApiKey
 } from '../controllers/api-key.controller';
 import { authenticate } from '../middlewares/auth.middleware';
+import { requireInternalAuth } from '../middlewares/internal-auth.middleware';
 
 const router = Router();
 
@@ -18,11 +19,11 @@ router.get('/', authenticate, listApiKeys);
 router.delete('/:id', authenticate, revokeApiKey);
 router.post('/:id/rotate', authenticate, rotateApiKey);
 
-// Internal/Management endpoints for Default Key
-router.get('/default/:userId', getDefaultApiKey);
-router.post('/default/:userId', createDefaultApiKey);
+// Internal/Management endpoints for Default Key - SECURE: Restricted to internal services
+router.get('/default/:userId', requireInternalAuth, getDefaultApiKey);
+router.post('/default/:userId', requireInternalAuth, createDefaultApiKey);
 
-// Internal Validation Route
-router.post('/validate', validateApiKey);
+// Internal Validation Route - SECURE: Restricted to internal services
+router.post('/validate', requireInternalAuth, validateApiKey);
 
 export default router;
