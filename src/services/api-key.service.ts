@@ -7,7 +7,7 @@ export interface ApiKey {
     id: string;
     user_id: string;
     name: string;
-    api_key_hash: string;
+    api_key_hash?: string;
     key_prefix: string;
     last_four: string;
     status: 'active' | 'revoked';
@@ -15,19 +15,25 @@ export interface ApiKey {
     rate_limit_rpm: number;
     usage_count: number;
     created_at: Date;
+    updated_at: Date;
     expires_at?: Date;
 }
 
-export const generateApiKey = async (userId: string, name: string, isDefault: boolean = false): Promise<{ apiKey: string; data: ApiKey }> => {
+const generateKeyMaterial = () => {
     const rawKey = `sk_${crypto.randomBytes(24).toString('hex')}`; // 24 bytes => 48 hex chars + prefix
     const apiKeyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
     const keyPrefix = 'sk_';
     const lastFour = rawKey.slice(-4);
+    return { rawKey, apiKeyHash, keyPrefix, lastFour };
+};
+
+export const generateApiKey = async (userId: string, name: string, isDefault: boolean = false): Promise<{ apiKey: string; data: ApiKey }> => {
+    const { rawKey, apiKeyHash, keyPrefix, lastFour } = generateKeyMaterial();
     
     const res = await db.query(
         `INSERT INTO api_keys (user_id, name, api_key_hash, key_prefix, last_four, is_default)
          VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING *`,
+         RETURNING id, user_id, name, key_prefix, last_four, status, is_default, rate_limit_rpm, usage_count, created_at, updated_at, expires_at`,
         [userId, name, apiKeyHash, keyPrefix, lastFour, isDefault]
     );
     
@@ -51,7 +57,7 @@ export const listApiKeys = async (userId: string, status?: string): Promise<ApiK
 };
 
 export const revokeApiKey = async (userId: string, id: string, force: boolean = false): Promise<boolean> => {
-    // Prevent revoking default keys unless forcing (e.g. for rotation)
+    // Prevent revoking default keys unless forcing (e.g. for rotation or explicit deletion)
     const query = force 
         ? `UPDATE api_keys SET status = 'revoked', updated_at = CURRENT_TIMESTAMP 
            WHERE id = $1 AND user_id = $2 AND status = 'active' RETURNING id`
@@ -63,20 +69,21 @@ export const revokeApiKey = async (userId: string, id: string, force: boolean = 
 };
 
 export const rotateApiKey = async (userId: string, id: string): Promise<{ apiKey: string; data: ApiKey } | null> => {
-    // 1. Get the current key to see its name and default status
-    const resOld = await db.query(
-        `SELECT name, is_default FROM api_keys WHERE id = $1 AND user_id = $2 AND status = 'active'`,
-        [id, userId]
+    // 1. Generate new key material
+    const { rawKey, apiKeyHash, keyPrefix, lastFour } = generateKeyMaterial();
+    
+    // 2. Update the existing key record with new hash and metadata
+    const res = await db.query(
+        `UPDATE api_keys 
+         SET api_key_hash = $1, key_prefix = $2, last_four = $3, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $4 AND user_id = $5 AND status = 'active'
+         RETURNING id, user_id, name, key_prefix, last_four, status, is_default, rate_limit_rpm, usage_count, created_at, updated_at, expires_at`,
+        [apiKeyHash, keyPrefix, lastFour, id, userId]
     );
     
-    if (resOld.rows.length === 0) return null;
-    const oldKeyInfo = resOld.rows[0];
+    if (res.rowCount === 0) return null;
     
-    // 2. Revoke the old key (force since it might be default)
-    await revokeApiKey(userId, id, true);
-    
-    // 3. Generate a new key with same name and default status
-    return generateApiKey(userId, oldKeyInfo.name, oldKeyInfo.is_default);
+    return { apiKey: rawKey, data: res.rows[0] };
 };
 
 export const getDefaultApiKey = async (userId: string): Promise<ApiKey | null> => {
