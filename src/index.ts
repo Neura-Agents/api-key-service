@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import { ENV } from './config/env.config';
 import { initDb } from './config/db.config';
 import logger from './config/logger';
@@ -9,7 +8,6 @@ import apiKeyRoutes from './routes/api-key.routes';
 const app = express();
 
 // Middleware
-app.use(cors());
 app.use(express.json());
 
 // Log requests
