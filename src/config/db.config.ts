@@ -8,13 +8,14 @@ const pool = new Pool({
     user: ENV.DB_USER,
     password: ENV.DB_PASSWORD,
     database: ENV.DB_NAME,
+    options: `-c search_path=${ENV.DB_SCHEMA},public`,
 });
 
 export const initDb = async () => {
     try {
         const client = await pool.connect();
         logger.info('Connected to PostgreSQL database');
-        
+
         // Initialize tables
         await client.query(`
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -40,7 +41,7 @@ export const initDb = async () => {
         } catch (e) {
             // Column may already exist
         }
-        
+
         client.release();
         logger.info('API Key service table initialization completed');
     } catch (err) {
